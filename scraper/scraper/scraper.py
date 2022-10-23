@@ -5,7 +5,7 @@ import logging
 from aiolimiter import AsyncLimiter
 from httpx import AsyncClient
 from bs4 import BeautifulSoup
-from urllib.robotparser import RobotFileParser
+from robots import RobotsParser
 from typing import Tuple, Set
 from functools import partial
 
@@ -20,13 +20,10 @@ class Scraper:
         self.logger.setLevel(level=self.settings.log_level)
         coloredlogs.install(level=self.logger.level)
 
-        self.robots = RobotFileParser()
-        self.robots.set_url(url=f"{self.settings.url_base}/robots.txt")
-        robots_rps: int = self.settings.rps if self.robots.request_rate("*") is None else self.robots.request_rate("*")
-        if self.settings.rps > robots_rps:
-            self.logger.warning("Your rps(%s) more that allowed rps(%s) in robots.txt",
-                                self.settings.rps, robots_rps)
-        self.throttler = AsyncLimiter(max_rate=min(self.settings.rps, robots_rps), time_period=1)
+        self.robots = RobotsParser.from_uri(uri=f"{self.settings.url_base}/robots.txt")
+        if self.settings.rps > 50:
+            self.logger.warning("Your rps(%s) too large", self.settings.rps)
+        self.throttler = AsyncLimiter(max_rate=self.settings.rps, time_period=1)
 
         self.queue = BucketQueue(settings=self.settings)
         self.queue.append(self.settings.start_url)
@@ -36,8 +33,10 @@ class Scraper:
     def _filter_urls(self, urls: Set[str]) -> Set[str]:
         filtered: Set[str] = {f'{self.settings.url_base}{url}' for url in urls
                               if url.startswith('/wiki/')
+                              and self.robots.can_fetch("*", url)
+                              and ":" not in url
                               and f'{self.settings.url_base}{url}' not in self.visited}
-        self.logger.info("Discarded %s refs from current document", len(urls) - len(filtered))
+        self.logger.info("Discarded %s refs from current batch of documents", len(urls) - len(filtered))
         return filtered
 
     def _find_hrefs(self, sources: Tuple) -> Set[str]:
@@ -45,7 +44,7 @@ class Scraper:
         for s in sources:
             soup = BeautifulSoup(s.text, features="html.parser")
             result |= {a['href'] for a in soup.find_all('a', href=True)}
-        self.logger.info("Got %s refs from current document", len(result))
+        self.logger.info("Got %s refs from current batch of documents", len(result))
         return result
 
     async def _scrape(self, url: str, client: AsyncClient):
