@@ -33,6 +33,14 @@ class ArgParser:
         )
 
         self.parser.add_argument(
+            '-f', '--file_output',
+            help='Output documents content as simple .txt files',
+            dest="is_file_output",
+            action="store_true",
+            default=Settings.is_file_output
+        )
+
+        self.parser.add_argument(
             '--out',
             help='Output directory',
             type=str,

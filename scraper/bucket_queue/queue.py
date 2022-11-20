@@ -20,10 +20,10 @@ class BucketQueue(deque):
         if self.task is None:
             raise Exception("Task of BucketQueue is None")
 
-        BaseDequeClass = super(BucketQueue, self)
+        base_deque = super(BucketQueue, self)
         bucket: List = []
         processed_in_batch: int = 0
-        bound: int = min(BaseDequeClass.__len__(), self.settings.batch_size)
+        bound: int = min(base_deque.__len__(), self.settings.batch_size)
 
         while processed_in_batch < bound:
             url = self.popleft()

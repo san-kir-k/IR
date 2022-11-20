@@ -3,26 +3,28 @@ import coloredlogs
 import logging
 
 from aiolimiter import AsyncLimiter
-from httpx import AsyncClient
+from httpx import AsyncClient, Response, codes
 from bs4 import BeautifulSoup
 from robots import RobotsParser
 from typing import Tuple, Set
-from functools import partial
+from functools import partial, wraps
 
 from utils import Settings
 from bucket_queue import BucketQueue
+from db import save_documents
 
 
 class Scraper:
+    logger = logging.getLogger(__name__)
+    
     def __init__(self, settings: Settings):
         self.settings: Settings = settings
-        self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(level=self.settings.log_level)
-        coloredlogs.install(level=self.logger.level)
+        Scraper.logger.setLevel(level=self.settings.log_level)
+        coloredlogs.install(level=Scraper.logger.level)
 
         self.robots = RobotsParser.from_uri(uri=f"{self.settings.url_base}/robots.txt")
         if self.settings.rps > 50:
-            self.logger.warning("Your rps(%s) too large", self.settings.rps)
+            Scraper.logger.warning("Your rps(%s) too large", self.settings.rps)
         self.throttler = AsyncLimiter(max_rate=self.settings.rps, time_period=1)
 
         self.queue = BucketQueue(settings=self.settings)
@@ -36,18 +38,52 @@ class Scraper:
                               and self.robots.can_fetch("*", url)
                               and ":" not in url
                               and f'{self.settings.url_base}{url}' not in self.visited}
-        self.logger.info("Discarded %s refs from current batch of documents", len(urls) - len(filtered))
+        Scraper.logger.info("Discarded %s refs from current batch of documents", len(urls) - len(filtered))
         return filtered
 
     def _find_hrefs(self, sources: Tuple) -> Set[str]:
         result: Set[str] = set()
         for s in sources:
+            if not s:
+                continue
             soup = BeautifulSoup(s.text, features="html.parser")
             result |= {a['href'] for a in soup.find_all('a', href=True)}
-        self.logger.info("Got %s refs from current batch of documents", len(result))
+        Scraper.logger.info("Got %s refs from current batch of documents", len(result))
         return result
 
-    async def _scrape(self, url: str, client: AsyncClient):
+    @staticmethod
+    def _handle_response(task):
+        @wraps(task)
+        async def wrapper(self, url: str, client: AsyncClient):
+            retries: int = 0
+            max_retires: int = 5
+            response: Response = await task(self, url, client)
+
+            while ((response.status_code == codes.TOO_MANY_REQUESTS or response.status_code == codes.SERVICE_UNAVAILABLE)
+                   and retries <= max_retires):
+                Scraper.logger.warning("Too many request for url: %s, retry: %s", url, retries)
+                await asyncio.sleep(1)
+                response = await task(self, url, url, client)
+                retries += 1
+
+            if retries > max_retires:
+                Scraper.logger.error("Can't scrape url: %s, max retries was reached", url)
+                return None
+
+            if codes.is_redirect(response.status_code):
+                Scraper.logger.warning("Redirect on url: %s", url)
+                response = await task(self, response.headers['Location'], client)
+
+            if response.status_code != codes.OK:
+                Scraper.logger.error("Response error on url: %s, code %s", url, response.status_code)
+                return None
+
+            return response
+
+        return wrapper
+
+    @_handle_response
+    async def _scrape(self, url: str, client: AsyncClient) -> Response:
         async with self.throttler:
             return await client.get(url)
 
@@ -61,15 +97,18 @@ class Scraper:
                 self.queue.extend(found_refs)
                 self.visited |= found_refs
 
-                for i, html in enumerate(results):
-                    if not html.text:
-                        continue
+                if self.settings.is_file_output:
+                    for i, html in enumerate(results):
+                        if not html.text:
+                            continue
 
-                    with open(f'./{self.settings.out_dir}/{i + self.scraped_count}.txt', 'w') as f:
-                        f.write(html.text)
+                        with open(f'./{self.settings.out_dir}/{i + self.scraped_count}.txt', 'w') as f:
+                            f.write(html.text)
+                else:
+                    await save_documents(results, Scraper.logger)
 
-                self.scraped_count += len(results)
-                self.logger.info("Scraped: %s", self.scraped_count)
+                self.scraped_count += len(results) - results.count(None)
+                Scraper.logger.info("Scraped: %s", self.scraped_count)
 
                 if self.scraped_count >= self.settings.max_scraped_count:
                     break
