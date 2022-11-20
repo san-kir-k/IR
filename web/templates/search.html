@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block content %}
+    <h1 style="text-align: center">{% block title %} Search engine {% endblock %}</h1>
+    <form method="post">
+        <br>
+        <input type="text" name="request"
+               placeholder="Insert here your request"
+               value="{{ request.form['request'] }}"
+               style="width: 300px">
+        </input>
+        <br>
+        <button type="submit">Search</button>
+    </form>
+{% endblock %}
