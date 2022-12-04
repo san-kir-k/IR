@@ -1,0 +1,1 @@
+from request_enrich.enrich import get_enriched_words

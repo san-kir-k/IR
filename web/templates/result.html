@@ -4,7 +4,7 @@
     <h1 style="text-align: center">{% block title %} Results {% endblock %}</h1>
     {% for result in results %}
         <div class='message'>
-            <a href="{{ result['reference'] }}">Link</a>
+            <a href="{{ result['url'] }}">{{ result['title'] }}</a>
         </div>
     {% endfor %}
 {% endblock %}
