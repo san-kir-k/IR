@@ -9,6 +9,4 @@ class Settings:
     url_base: str = "https://en.wikipedia.org"
     rps: int = 20
     batch_size: int = 5
-    out_dir: str = 'out'
-    is_file_output: bool = False
     max_scraped_count: int = 20

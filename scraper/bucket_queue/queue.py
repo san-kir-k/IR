@@ -14,10 +14,10 @@ class BucketQueue(deque):
     def set_task(self, task) -> None:
         self.task = task
 
-    def append(self, *args, **kwargs) -> None:
+    def extend(self, *args, **kwargs) -> None:
         if super(BucketQueue, self).__len__() > self.max_bucket_deque_size:
             return None
-        return super().append(*args, **kwargs)
+        return super().extend(*args, **kwargs)
 
     def __iter__(self):
         return self

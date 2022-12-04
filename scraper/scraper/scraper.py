@@ -11,7 +11,8 @@ from functools import partial, wraps
 
 from utils import Settings
 from bucket_queue import BucketQueue
-from db import save_documents
+from db import save_documents, save_words, save_bigrams,\
+    load_visited_urls, dump_visited_urls, load_pending_urls, dump_pending_urls
 from text_enrich import enrich_text, get_text
 
 
@@ -28,10 +29,20 @@ class Scraper:
             Scraper.logger.warning("Your rps(%s) too large", self.settings.rps)
         self.throttler = AsyncLimiter(max_rate=self.settings.rps, time_period=1)
 
+    async def _load_scraper_state(self):
+        loaded_visited_urls: Set[str] = await load_visited_urls(Scraper.logger)
+        if loaded_visited_urls:
+            self.visited = loaded_visited_urls
+        else:
+            self.visited = {self.settings.start_url}
+            await dump_visited_urls({self.settings.start_url}, Scraper.logger)
+
         self.queue = BucketQueue(settings=self.settings)
-        self.queue.append(self.settings.start_url)
-        self.visited = {self.settings.start_url}
-        self.scraped_count = 0
+        loaded_pending_urls: Set[str] = await load_pending_urls(Scraper.logger)
+        if loaded_pending_urls:
+            self.queue.extend(loaded_pending_urls)
+        else:
+            self.queue.extend(self.visited)
 
     def _filter_urls(self, urls: Set[str]) -> Set[str]:
         filtered: Set[str] = {f'{self.settings.url_base}{url}' for url in urls
@@ -89,31 +100,28 @@ class Scraper:
             return await client.get(url)
 
     async def run(self):
+        await self._load_scraper_state()
         async with AsyncClient() as client:
             task = partial(self._scrape, client=client)
             self.queue.set_task(task)
             for tasks in self.queue:
                 results: Tuple = await asyncio.gather(*tasks)
-                found_refs: Set[str] = self._filter_urls(self._find_hrefs(results))
-                self.queue.extend(found_refs)
-                self.visited |= found_refs
 
-                if self.settings.is_file_output:
-                    for i, html in enumerate(results):
-                        if not html.text:
-                            continue
-
-                        enriched: List[str] = enrich_text(get_text(html))
-
-                        with open(f'./{self.settings.out_dir}/{i + self.scraped_count}.txt', 'w') as f:
-                            f.write(" ".join(enriched))
-                else:
-                    await save_documents(list(map(lambda r: enrich_text(get_text(r)), results)),
-                                         results,
-                                         Scraper.logger)
-
-                self.scraped_count += len(results) - results.count(None)
-                Scraper.logger.info("Scraped: %s", self.scraped_count)
-
-                if self.scraped_count >= self.settings.max_scraped_count:
+                if len(self.visited) > self.settings.max_scraped_count:
                     break
+
+                enriched: List[List[str]] = list(map(lambda r: enrich_text(get_text(r)), results))
+                await save_documents(enriched, results, Scraper.logger)
+                await save_words(enriched, Scraper.logger)
+
+                processed: Set[str] = self._filter_urls({result.url.path for result in results})
+                await dump_visited_urls(processed, Scraper.logger)
+                self.visited |= processed
+
+                found_refs: Set[str] = self._filter_urls(self._find_hrefs(results))
+                await dump_pending_urls(found_refs, Scraper.logger)
+                self.queue.extend(found_refs)
+
+                Scraper.logger.info("Scraped: %s", len(self.visited))
+
+        await save_bigrams()
