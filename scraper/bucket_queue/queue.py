@@ -1,5 +1,5 @@
 from collections import deque
-from typing import List, Coroutine
+from typing import List
 
 from utils import Settings
 
@@ -9,9 +9,15 @@ class BucketQueue(deque):
         super().__init__(*args, **kwargs)
         self.settings = settings
         self.task = None
+        self.max_bucket_deque_size = 1e6
 
     def set_task(self, task) -> None:
         self.task = task
+
+    def append(self, *args, **kwargs) -> None:
+        if super(BucketQueue, self).__len__() > self.max_bucket_deque_size:
+            return None
+        return super().append(*args, **kwargs)
 
     def __iter__(self):
         return self

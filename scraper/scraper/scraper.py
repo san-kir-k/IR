@@ -6,12 +6,13 @@ from aiolimiter import AsyncLimiter
 from httpx import AsyncClient, Response, codes
 from bs4 import BeautifulSoup
 from robots import RobotsParser
-from typing import Tuple, Set
+from typing import Tuple, Set, List
 from functools import partial, wraps
 
 from utils import Settings
 from bucket_queue import BucketQueue
 from db import save_documents
+from text_enrich import enrich_text, get_text
 
 
 class Scraper:
@@ -102,10 +103,14 @@ class Scraper:
                         if not html.text:
                             continue
 
+                        enriched: List[str] = enrich_text(get_text(html))
+
                         with open(f'./{self.settings.out_dir}/{i + self.scraped_count}.txt', 'w') as f:
-                            f.write(html.text)
+                            f.write(" ".join(enriched))
                 else:
-                    await save_documents(results, Scraper.logger)
+                    await save_documents(list(map(lambda r: enrich_text(get_text(r)), results)),
+                                         results,
+                                         Scraper.logger)
 
                 self.scraped_count += len(results) - results.count(None)
                 Scraper.logger.info("Scraped: %s", self.scraped_count)
