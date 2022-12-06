@@ -4,13 +4,15 @@ from logging import Logger
 from db import get_words_by_bigrams, check_if_exists
 
 from search_helper.common import get_bigrams
-from search_helper.metrics import jaccard_coef, get_bound
+from search_helper.metrics import jaccard_coef, damerau_levenshtein_distance
 
 
 class BigramIndex:
-    def __init__(self, enriched_request: List[str], bound: int = 5) -> None:
+    def __init__(self, enriched_request: List[str],
+                 count_bound: int = 3, distance_bound: float = 3) -> None:
         self.req = enriched_request
-        self.bound = bound
+        self.count_bound = count_bound
+        self.distance_bound = distance_bound
         self.search_dict: Dict = dict()
 
     async def build(self, logger: Logger) -> None:
@@ -34,10 +36,15 @@ class BigramIndex:
                 coefs.append([jaccard_coef(word, other), other])
             coefs.sort(reverse=True)
 
-            bound: float = get_bound(word)
-            for coef, supposed in coefs[:self.bound]:
-                logger.debug('Supposed word "%s" with coef %s', supposed, coef)
-                if coef >= bound:
+            most_similar: List = [w for _, w in coefs[:100]]
+            distances: List[List[float]] = []
+            for other in most_similar:
+                distances.append([damerau_levenshtein_distance(word, other), other])
+            distances.sort()
+
+            for d, supposed in distances[:self.count_bound]:
+                logger.debug('Supposed word "%s" with LD-distance %s', supposed, d)
+                if d <= self.distance_bound:
                     self.search_dict[word].add(supposed)
                 else:
                     self.search_dict[word].add(word)
