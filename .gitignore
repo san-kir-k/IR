@@ -1,5 +1,7 @@
 # mine
 .DS_Store
+engine/idx/
+engine/inv_idx
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
