@@ -8,5 +8,7 @@ edition = "2021"
 [dependencies]
 futures = "0.3.25"
 mongodb = "2.3.1"
+ordered-float = "3.4.0"
 serde = "1.0.149"
 tokio = { version = "1.23.0", features = ["full"] }
+use = "0.0.0"

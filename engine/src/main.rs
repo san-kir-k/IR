@@ -1,17 +1,21 @@
 pub mod db;
+pub mod engine;
 pub mod index;
 pub mod inverted_index;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    if !index::is_index_built().await? {
-        let mut index = index::create_index().await?;
-        index.build().await?;
-    }
+    let engine = engine::init_engine().await?;
+    let query = vec![
+        "relief".to_string(),
+        "pitcher".to_string(),
+        "game".to_string(),
+        "pitch".to_string(),
+    ];
+    let res = engine.search(query).await?;
 
-    if !inverted_index::is_inverted_index_built().await? {
-        let mut inv_index = inverted_index::create_inverted_index().await?;
-        inv_index.build().await?;
+    for oid in res {
+        print!("{:?}\n", oid.to_hex());
     }
 
     Ok(())

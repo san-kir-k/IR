@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::mem::size_of;
 
 use tokio::fs::{copy, create_dir, remove_dir_all, File};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, BufWriter, SeekFrom, AsyncSeekExt, ErrorKind};
+use tokio::io::{
+    AsyncReadExt, AsyncSeekExt, AsyncWriteExt, BufReader, BufWriter, ErrorKind, SeekFrom,
+};
 
 use futures::future::join_all;
 use futures::stream::StreamExt;
@@ -12,13 +14,13 @@ use mongodb::bson::{self, oid::ObjectId};
 use crate::db;
 
 pub struct InvertedIndex {
-    index_head_file: &'static str,
-    index_content_file: &'static str,
+    pub index_head_file: &'static str,
+    pub index_content_file: &'static str,
     max_map_size: usize,
     cur_map_size: usize,
     count_of_written_blocks: usize,
     blocks_directory: &'static str,
-    head: HashMap<String, (u64, f64)>,
+    pub head: HashMap<String, (u64, f64)>,
 }
 
 pub async fn is_inverted_index_built() -> Result<bool, Box<dyn std::error::Error>> {
@@ -199,8 +201,7 @@ impl InvertedIndex {
         loop {
             let word_len_res = reader.read_u64().await;
             if word_len_res.is_err() {
-                if word_len_res.expect_err("Expected error!").kind() == ErrorKind::UnexpectedEof
-                {
+                if word_len_res.expect_err("Expected error!").kind() == ErrorKind::UnexpectedEof {
                     break;
                 } else {
                     panic!("Unexpected error reading file.");
@@ -210,13 +211,14 @@ impl InvertedIndex {
             let mut word_bytes = vec![0u8; word_len as usize];
             reader.read_exact(&mut word_bytes).await?;
             let posting_list_len = reader.read_u64().await?;
-            
-            next_offset += size_of::<u64>() as u64 + (size_of::<u8>() as u64) * word_len + size_of::<u64>() as u64;
+
+            next_offset += size_of::<u64>() as u64 + (size_of::<u8>() as u64) * word_len;
             self.head
                 .entry(String::from_utf8(word_bytes).unwrap())
                 .and_modify(|pair| *pair = (next_offset, pair.1 + 1.0));
 
-            next_offset += (size_of::<u8>() as u64) * 12 * posting_list_len;
+            next_offset +=
+                size_of::<u64>() as u64 + (size_of::<u8>() as u64) * 12 * posting_list_len;
             reader.seek(SeekFrom::Start(next_offset)).await?;
         }
 

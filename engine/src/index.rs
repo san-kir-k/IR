@@ -11,9 +11,12 @@ use mongodb::bson;
 use crate::db;
 
 pub struct Index {
+    pub index_head_file: &'static str,
+    pub index_content_file: &'static str,
     index_head_writer: BufWriter<File>,
     index_content_writer: BufWriter<File>,
     next_offset: usize,
+    pub head: HashMap<Vec<u8>, u64>,
 }
 
 pub async fn is_index_built() -> Result<bool, Box<dyn std::error::Error>> {
@@ -44,9 +47,12 @@ pub async fn create_index() -> Result<Index, Box<dyn std::error::Error>> {
     let index_content_writer = BufWriter::new(index_content);
 
     Ok(Index {
+        index_head_file,
+        index_content_file,
         index_head_writer,
         index_content_writer,
         next_offset: 0,
+        head: HashMap::default(),
     })
 }
 
@@ -81,6 +87,9 @@ impl Index {
         words_count: u64,
         doc: &db::Doc,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        self.head
+            .insert(doc._id.bytes().to_vec(), self.next_offset as u64);
+
         self.index_head_writer.write(&doc._id.bytes()).await?;
         self.index_head_writer
             .write_u64(self.next_offset as u64)
