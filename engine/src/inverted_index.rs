@@ -23,16 +23,9 @@ pub struct InvertedIndex {
     pub head: HashMap<String, (u64, f64)>,
 }
 
-pub async fn is_inverted_index_built() -> Result<bool, Box<dyn std::error::Error>> {
-    let index_head_file = File::open("inv_idx/head.inv_idx.bin").await;
-    let index_content_file = File::open("inv_idx/content.inv_idx.bin").await;
-
-    if index_head_file.is_err() || index_content_file.is_err() {
-        return Ok(false);
-    }
-
-    if index_head_file?.metadata().await?.len() > 0
-        && index_content_file?.metadata().await?.len() > 0
+pub fn is_inverted_index_built() -> Result<bool, Box<dyn std::error::Error>> {
+    if std::path::Path::new("inv_idx/head.inv_idx.bin").exists()
+        && std::path::Path::new("inv_idx/content.inv_idx.bin").exists()
     {
         return Ok(true);
     } else {
@@ -44,7 +37,9 @@ pub async fn create_inverted_index() -> Result<InvertedIndex, Box<dyn std::error
     let index_head_file = "inv_idx/head.inv_idx.bin";
     let index_content_file = "inv_idx/content.inv_idx.bin";
 
-    remove_dir_all("inv_idx/blocks").await?;
+    if std::path::Path::new("inv_idx/blocks").exists() {
+        remove_dir_all("inv_idx/blocks").await?;
+    }
     create_dir("inv_idx/blocks").await?;
 
     Ok(InvertedIndex {
@@ -59,6 +54,35 @@ pub async fn create_inverted_index() -> Result<InvertedIndex, Box<dyn std::error
 }
 
 impl InvertedIndex {
+    pub async fn load(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let head_file = File::open(self.index_head_file).await?;
+        let mut reader = BufReader::new(head_file);
+
+        loop {
+            let len = reader.read_u64().await;
+            if len.is_err() {
+                if len.expect_err("Expected error!").kind() == ErrorKind::UnexpectedEof {
+                    break;
+                } else {
+                    panic!("Unexpected error reading file.");
+                }
+            }
+
+            let mut bytes = vec![0u8; len.unwrap() as usize];
+            reader.read_exact(&mut bytes).await?;
+
+            let offset = reader.read_u64().await?;
+            let idf = reader.read_f64().await?;
+
+            self.head
+                .insert(String::from_utf8(bytes).unwrap(), (offset, idf));
+        }
+
+        print!("Inverted index loaded\n");
+
+        Ok(())
+    }
+
     pub async fn build(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let dbase = db::connect_to_docs_database().await?;
         let mut cur = dbase.get_cursor().await?;
@@ -230,6 +254,7 @@ impl InvertedIndex {
         let mut index_head_writer = BufWriter::new(index_head);
 
         for (word, (offset, idf)) in &self.head {
+            index_head_writer.write_u64(word.len() as u64).await?;
             index_head_writer.write(word.as_bytes()).await?;
             index_head_writer.write_u64(*offset as u64).await?;
             index_head_writer.write_f64(*idf).await?;

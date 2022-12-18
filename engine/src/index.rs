@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::mem::size_of;
 
 use tokio::fs::File;
-use tokio::io::{AsyncWriteExt, BufWriter};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader, BufWriter, ErrorKind};
 
 use futures::stream::StreamExt;
 
@@ -13,22 +13,13 @@ use crate::db;
 pub struct Index {
     pub index_head_file: &'static str,
     pub index_content_file: &'static str,
-    index_head_writer: BufWriter<File>,
-    index_content_writer: BufWriter<File>,
     next_offset: usize,
     pub head: HashMap<Vec<u8>, u64>,
 }
 
-pub async fn is_index_built() -> Result<bool, Box<dyn std::error::Error>> {
-    let index_head_file = File::open("idx/head.idx.bin").await;
-    let index_content_file = File::open("idx/content.idx.bin").await;
-
-    if index_head_file.is_err() || index_content_file.is_err() {
-        return Ok(false);
-    }
-
-    if index_head_file?.metadata().await?.len() > 0
-        && index_content_file?.metadata().await?.len() > 0
+pub fn is_index_built() -> Result<bool, Box<dyn std::error::Error>> {
+    if std::path::Path::new("idx/head.idx.bin").exists()
+        && std::path::Path::new("idx/content.idx.bin").exists()
     {
         return Ok(true);
     } else {
@@ -40,26 +31,48 @@ pub async fn create_index() -> Result<Index, Box<dyn std::error::Error>> {
     let index_head_file = "idx/head.idx.bin";
     let index_content_file = "idx/content.idx.bin";
 
-    let index_head = File::create(index_head_file).await?;
-    let index_head_writer = BufWriter::new(index_head);
-
-    let index_content = File::create(index_content_file).await?;
-    let index_content_writer = BufWriter::new(index_content);
-
     Ok(Index {
         index_head_file,
         index_content_file,
-        index_head_writer,
-        index_content_writer,
         next_offset: 0,
         head: HashMap::default(),
     })
 }
 
 impl Index {
+    pub async fn load(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let head_file = File::open(self.index_head_file).await?;
+        let mut reader = BufReader::new(head_file);
+
+        loop {
+            let mut bytes = vec![0u8; 12];
+            let res = reader.read_exact(&mut bytes).await;
+            if res.is_err() {
+                if res.expect_err("Expected error!").kind() == ErrorKind::UnexpectedEof {
+                    break;
+                } else {
+                    panic!("Unexpected error reading file.");
+                }
+            }
+            let offset = reader.read_u64().await?;
+
+            self.head.insert(bytes, offset);
+        }
+
+        print!("Index loaded\n");
+
+        Ok(())
+    }
+
     pub async fn build(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let dbase = db::connect_to_docs_database().await?;
         let mut cur = dbase.get_cursor().await?;
+
+        let index_head = File::create(self.index_head_file).await?;
+        let mut index_head_writer = BufWriter::new(index_head);
+
+        let index_content = File::create(self.index_content_file).await?;
+        let mut index_content_writer = BufWriter::new(index_content);
 
         while let Some(result) = cur.next().await {
             let mut tf = HashMap::new();
@@ -75,8 +88,17 @@ impl Index {
                 *val = 1.0 + f64::log10(*val);
             }
 
-            self.write_doc_to_disk(&tf, words_count, &doc).await?;
+            self.write_doc_to_disk(
+                &tf,
+                words_count,
+                &doc,
+                &mut index_head_writer,
+                &mut index_content_writer,
+            )
+            .await?;
         }
+
+        print!("Index was built\n");
 
         Ok(())
     }
@@ -86,33 +108,31 @@ impl Index {
         tf: &HashMap<&String, f64>,
         words_count: u64,
         doc: &db::Doc,
+        index_head_writer: &mut BufWriter<File>,
+        index_content_writer: &mut BufWriter<File>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         self.head
             .insert(doc._id.bytes().to_vec(), self.next_offset as u64);
 
-        self.index_head_writer.write(&doc._id.bytes()).await?;
-        self.index_head_writer
-            .write_u64(self.next_offset as u64)
-            .await?;
+        index_head_writer.write(&doc._id.bytes()).await?;
+        index_head_writer.write_u64(self.next_offset as u64).await?;
 
-        self.index_content_writer.write_u64(words_count).await?;
+        index_content_writer.write_u64(words_count).await?;
         self.next_offset += size_of::<u64>();
 
         for word in &doc.words {
-            self.index_content_writer
-                .write_u64(word.len() as u64)
-                .await?;
+            index_content_writer.write_u64(word.len() as u64).await?;
             self.next_offset += size_of::<u64>();
 
-            self.index_content_writer.write(word.as_bytes()).await?;
+            index_content_writer.write(word.as_bytes()).await?;
             self.next_offset += word.as_bytes().len() * size_of::<u8>();
 
-            self.index_content_writer.write_f64(tf[word]).await?;
+            index_content_writer.write_f64(tf[word]).await?;
             self.next_offset += size_of::<f64>();
         }
 
-        self.index_head_writer.flush().await?;
-        self.index_content_writer.flush().await?;
+        index_head_writer.flush().await?;
+        index_content_writer.flush().await?;
 
         Ok(())
     }

@@ -17,13 +17,19 @@ pub struct Engine {
 }
 
 pub async fn init_engine() -> Result<Engine, Box<dyn std::error::Error>> {
-    // TODO: add index load if index::is_index_built().await?
-
     let mut forward_index = index::create_index().await?;
-    forward_index.build().await?;
+    if index::is_index_built()? {
+        forward_index.load().await?;
+    } else {
+        forward_index.build().await?;
+    }
 
     let mut inverted_index = inverted_index::create_inverted_index().await?;
-    inverted_index.build().await?;
+    if inverted_index::is_inverted_index_built()? {
+        inverted_index.load().await?;
+    } else {
+        inverted_index.build().await?;
+    }
 
     Ok(Engine {
         top_n: 20,
