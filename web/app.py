@@ -2,13 +2,15 @@ from flask import Flask, render_template, request, url_for, flash, redirect
 
 from search_helper import BigramIndex
 from request_enrich import get_enriched_words
+from db import get_documents
 
 from utils import Settings
-from typing import List
+from typing import List, Dict
 
 import coloredlogs
 import logging
 import asyncio
+import httpx
 
 
 loop = asyncio.get_event_loop()
@@ -20,9 +22,6 @@ coloredlogs.install(level=logging.DEBUG)
 app = Flask(__name__)
 app.config['SECRET_KEY'] = Settings().secret
 
-results = [{'url': "https://ru.wikipedia.org/wiki/Диаграмма_Герцшпрунга_—_Рассела",
-            'title': "Diagram"}]
-
 
 @app.route('/', methods=('GET', 'POST'))
 def search():
@@ -33,13 +32,22 @@ def search():
         bi: BigramIndex = BigramIndex(enriched_request)
         loop.run_until_complete(bi.build(logger))
 
-        logger.debug("Supposed request structure: %s", bi.get_search_dict())
+        search_dict: Dict = bi.get_search_dict()
+        logger.debug("Supposed request structure: %s", search_dict)
+
+        search_engine_request: List = [supposed[0] for supposed in search_dict.values()]
+        logger.debug("Request for search engine: %s", search_engine_request)
+
+        search_engine_response = httpx.post('http://localhost:8080/search', json={'words': search_engine_request})
+
+        doc_ids: List = search_engine_response.json()["doc_ids"]
+        logger.debug("Got %s documents in search engine", len(doc_ids))
+        results = loop.run_until_complete(get_documents(doc_ids))
+        logger.debug("Response: %s", results)
 
         if not search_request:
             flash('Request is required!')
         else:
-            results = [{'url': "https://ru.wikipedia.org/wiki/Заглавная_страница",
-                        "title": "Main page"}]
             return render_template('result.html', results=results)
 
     return render_template('search.html')

@@ -19,10 +19,10 @@ class BigramIndex:
         for word in self.req:
             if await check_if_exists(word):
                 logger.debug('Word "%s" exists', word)
-                self.search_dict[word] = {word}
+                self.search_dict[word] = [word]
                 continue
 
-            self.search_dict[word] = set()
+            self.search_dict[word] = []
             bigrams: Set[str] = get_bigrams(word)
             index: Dict = await get_words_by_bigrams(bigrams)
 
@@ -45,9 +45,9 @@ class BigramIndex:
             for d, supposed in distances[:self.count_bound]:
                 logger.debug('Supposed word "%s" with LD-distance %s', supposed, d)
                 if d <= self.distance_bound:
-                    self.search_dict[word].add(supposed)
+                    self.search_dict[word].append(supposed)
                 else:
-                    self.search_dict[word].add(word)
+                    self.search_dict[word].append(word)
 
     def get_supposed(self, word: str) -> Set[str]:
         return self.search_dict[word]
