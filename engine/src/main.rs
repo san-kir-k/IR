@@ -3,7 +3,7 @@ extern crate lazy_static;
 extern crate futures;
 
 lazy_static! {
-    static ref ENGINE: engine::Engine = futures::executor::block_on(engine::init_engine()).unwrap();
+    static ref ENGINE: Mutex<Option<engine::Engine>> = Mutex::new(None);
 }
 
 pub mod db;
@@ -13,6 +13,7 @@ pub mod inverted_index;
 
 use actix_web::{post, App, HttpResponse, HttpServer, Responder};
 use serde::{Deserialize, Serialize};
+use std::sync::Mutex;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Request {
@@ -28,7 +29,8 @@ struct Response {
 async fn search(req_body: String) -> impl Responder {
     println!("Request: {req_body}");
     let data: Request = serde_json::from_str(&req_body).unwrap();
-    let result = ENGINE.search(data.words).await.unwrap();
+    let mut result = ENGINE.lock().unwrap().as_mut().unwrap().search(data.words).await.unwrap();
+    result.dedup();
 
     print!("Found doc_ids:\n");
     for oid in &result {
@@ -44,6 +46,7 @@ async fn search(req_body: String) -> impl Responder {
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    *ENGINE.lock().unwrap() = Some(engine::init_engine().await.unwrap());
     HttpServer::new(|| App::new().service(search))
         .bind(("localhost", 8080))?
         .run()
