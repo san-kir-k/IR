@@ -1,10 +1,17 @@
 {% extends 'base.html' %}
 
 {% block content %}
+    <h3 style="text-align: center"> Your request was changed to: </h3>
+    <h3 style="text-align: center">
+        {% for p in changed_request %}
+            <mark class={{ p['color'] }}>{{ p['word'] }}</mark>
+        {% endfor %}
+    </h3>
     <h1 style="text-align: center">{% block title %} Results {% endblock %}</h1>
     {% for result in results %}
         <div class='message'>
-            <a href="{{ result['url'] }}">{{ result['title'] }}</a>
+            <a href="{{ result['url'] }}" style="font-size:20px;">{{ result['title'] }}</a>
+            <p style="font-size:12px;"> {{ result['url'] }} </p>
         </div>
     {% endfor %}
 {% endblock %}

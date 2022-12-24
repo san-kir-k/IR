@@ -11,6 +11,7 @@ import coloredlogs
 import logging
 import asyncio
 import httpx
+import time
 
 
 loop = asyncio.get_event_loop()
@@ -38,18 +39,29 @@ def search():
         search_engine_request: List = [supposed[0] for supposed in search_dict.values()]
         logger.debug("Request for search engine: %s", search_engine_request)
 
-        search_engine_response = httpx.post('http://localhost:8080/search', json={'words': search_engine_request})
+        start = time.time()
+        search_engine_response = httpx.post('http://localhost:8080/search',
+                                            json={'words': search_engine_request},
+                                            timeout=None)
+        end = time.time()
+        logger.debug("Search engine request time [sec]: %s", end - start)
 
         doc_ids: List = search_engine_response.json()["doc_ids"]
         logger.debug("Got %s documents in search engine", len(doc_ids))
         results = loop.run_until_complete(get_documents(doc_ids))
         logger.debug("Response: %s", results)
 
+        front_request: List[Dict] = []
+        for given, changed in zip(enriched_request, search_engine_request):
+            if given != changed:
+                front_request.append({"word": changed, "color": "red"})
+            else:
+                front_request.append({"word": changed, "color": "black"})
+
         if not search_request:
             flash('Request is required!')
         else:
-            return render_template('result.html', results=results)
-
+            return render_template('result.html', results=results, changed_request=front_request)
     return render_template('search.html')
 
 
