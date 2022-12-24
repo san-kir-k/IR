@@ -97,7 +97,10 @@ class Scraper:
     @_handle_response
     async def _scrape(self, url: str, client: AsyncClient) -> Response:
         async with self.throttler:
-            return await client.get(url)
+            try:
+                return await client.get(url)
+            except Exception as e:
+                return None
 
     async def run(self):
         await self._load_scraper_state()

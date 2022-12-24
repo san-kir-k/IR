@@ -12,6 +12,9 @@ from nltk.corpus import stopwords
 
 
 def get_text(response: Response) -> str:
+    if not response:
+        return ""
+
     soup = BeautifulSoup(response.text, features="html.parser")
     output = ""
     for t in soup.find(id='mw-content-text').find_all(text=True):

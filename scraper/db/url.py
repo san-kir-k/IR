@@ -45,4 +45,5 @@ async def load_pending_urls(logger: Logger) -> Set[str]:
 
 
 async def dump_pending_urls(urls: Set[str], logger: Logger) -> None:
+    await client.IR.PendingURLStorage.drop()
     return await dump_urls(urls, logger, client.IR.PendingURLStorage)
