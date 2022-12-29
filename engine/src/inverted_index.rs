@@ -45,7 +45,7 @@ pub async fn create_inverted_index() -> Result<InvertedIndex, Box<dyn std::error
     Ok(InvertedIndex {
         index_head_file,
         index_content_file,
-        max_map_size: 10_000,
+        max_map_size: 50_000,
         cur_map_size: 0,
         count_of_written_blocks: 0,
         blocks_directory: "inv_idx/blocks",
