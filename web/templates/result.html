@@ -7,6 +7,11 @@
             <mark class={{ p['color'] }}>{{ p['word'] }}</mark>
         {% endfor %}
     </h3>
+    {% if show_hidden %}
+        <nav>
+            <a style="font-size:14px;" href="{{ url_for('result', search_engine_request = original_request, enriched_request = original_request) }}">Search for original request</a>
+        </nav>
+    {% endif %}
     <h1 style="text-align: center">{% block title %} Results {% endblock %}</h1>
     {% for result in results %}
         <div class='message'>
